@@ -21,3 +21,4 @@ Cargo.lock
 #.idea/
 
 Images/unsplash-research-dataset-lite-latest
+.DS_Store
