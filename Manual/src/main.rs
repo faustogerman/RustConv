@@ -14,13 +14,12 @@ fn img_to_array(img: &RgbImage) -> ArrayView<u8, Dim<[Ix; 3]>> {
 }
 
 fn main() {
-    // let img = ImageReader::open("./src/images/ryan-klaus-Xa0BLOXVxrQ-unsplash.jpg")
-        let img = ImageReader::open("./src/images/Teaser-Landmark.png")
+    let img = ImageReader::open("../Images/collection/1d8ef901.png")
         .expect("Image could not be loaded")
         .decode()
         .expect("Image could not be decoded")
         .to_rgb8();
 
     let xy = img_to_array(&img);
-    println!("{}", xy);
+    // println!("{}", xy);
 }
