@@ -1,66 +1,87 @@
+mod conv;
 mod filters;
+mod utils;
 
-use image::{GrayImage, ImageBuffer, Luma};
-use image::{ImageReader, RgbImage};
-use ndarray::{ArrayView, Dim, Ix};
+use crate::conv::convolve;
+use clap::{Parser, ValueEnum};
+use image::ImageReader;
+use std::cmp::PartialEq;
 
-fn img_to_array(img: &RgbImage) -> ArrayView<u8, Dim<[Ix; 3]>> {
-    // We could use 16 or 32 bits. Not sure if >8 bits makes any difference.
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
+enum DilationKind {
+    Null,
+    Small,
+    Medium,
+    Large,
+}
 
-    let raw_pixel_data = img.as_raw(); // Vec[u8] of length h*w
-    let (w, h) = img.dimensions();
+#[derive(ValueEnum, Clone, Debug)]
+enum FiltersKind {
+    Ridge,
+    Sharpen,
+    BoxBlur,
+    Gaussian,
+}
 
-    ArrayView::from_shape((h as usize, w as usize, 3), raw_pixel_data)
-        .expect("Shape mismatch with raw image data.")
+#[derive(ValueEnum, Clone, Debug)]
+enum FilterSizeKind {
+    Small,
+    Medium,
+    Large,
+}
+
+/// Search for a pattern in a file and display the lines that contain it.
+#[derive(Parser, Debug)]
+struct Cli {
+    filename: std::path::PathBuf,
+    #[clap(long, value_enum)]
+    filter: FiltersKind,
+    #[clap(long)]
+    size: FilterSizeKind,
+
+    #[arg(long, value_enum, default_value_t=DilationKind::Null)]
+    dilation: DilationKind,
 }
 
 fn main() {
-    let img = ImageReader::open("../Images/collection/1d8ef901.jpg")
+    // structure: RustConv <filename> <filter> <filter size> <(optional) --dilation>
+    // For example (with binary executable): ```RustConv ./path/to/image.jpg --filter RIDGE --size 3
+    // For example (with cargo run): ```RustConv -- ./path/to/image.jpg --filter RIDGE --size 3
+    // For example (with binary executable): ```RustConv ./path/to/image.jpg --filter RIDGE --size 3 --dilation small
+    let args = Cli::parse();
+
+    let filter: &[&[f32]] = match args.filter {
+        FiltersKind::Ridge => match args.size {
+            FilterSizeKind::Small => filters::RIDGE_3X3,
+            FilterSizeKind::Medium => filters::RIDGE_6X6,
+            FilterSizeKind::Large => filters::RIDGE_12X12,
+        },
+        FiltersKind::Sharpen => match args.size {
+            FilterSizeKind::Small => filters::SHARPEN_3X3,
+            FilterSizeKind::Medium => filters::SHARPEN_6X6,
+            FilterSizeKind::Large => filters::SHARPEN_12X12,
+        },
+        FiltersKind::BoxBlur => match args.size {
+            FilterSizeKind::Small => filters::BOX_BLUR_3X3,
+            FilterSizeKind::Medium => filters::BOX_BLUR_6X6,
+            FilterSizeKind::Large => filters::BOX_BLUR_12X12,
+        },
+        FiltersKind::Gaussian => match args.size {
+            FilterSizeKind::Small => filters::GAUSSIAN_3X3,
+            FilterSizeKind::Medium => filters::GAUSSIAN_6X6,
+            FilterSizeKind::Large => unimplemented!("Large Gaussian filter is not yet supported."),
+        },
+    };
+
+    if args.dilation != DilationKind::Null {
+        unimplemented!("Dilation is not supported yet");
+    }
+
+    let img = ImageReader::open(args.filename)
         .expect("Image could not be loaded")
         .decode()
         .expect("Image could not be decoded")
         .to_luma8();
 
-    let result = convolve(&img, &filters::BOX_BLUR_3X3);
-    result
-        .save("./_out_images_test/output1.jpg")
-        .expect("Failed to save image");
-    let result = convolve(&img, &filters::GAUSSIAN_6X6);
-    result
-        .save("./_out_images_test/output2.jpg")
-        .expect("Failed to save image");
-    let result = convolve(&img, &filters::RIDGE_12X12);
-    result
-        .save("./_out_images_test/output3.jpg")
-        .expect("Failed to save image");
-}
-
-/// Applies a convolution operation on a grayscale image using a kernel of any numeric type and size.
-pub fn convolve<const H: usize, const W: usize>(
-    image: &GrayImage,
-    kernel: &[[f32; W]; H],
-) -> GrayImage {
-    let (width, height) = image.dimensions();
-    let output_width = width - W as u32 + 1;
-    let output_height = height - H as u32 + 1;
-
-    let mut output = ImageBuffer::new(output_width, output_height);
-
-    for y in 0..output_height {
-        for x in 0..output_width {
-            let mut acc = 0.0;
-
-            for ky in 0..H {
-                for kx in 0..W {
-                    let pixel_value = image.get_pixel(x + kx as u32, y + ky as u32)[0] as f32;
-                    let weight = kernel[ky][kx];
-                    acc += pixel_value * weight;
-                }
-            }
-
-            output.put_pixel(x, y, Luma([acc.clamp(0.0, 255.0) as u8]));
-        }
-    }
-
-    output
+    convolve(&img, filter);
 }
