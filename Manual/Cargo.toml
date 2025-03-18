@@ -7,3 +7,4 @@ edition = "2021"
 ndarray = "0.16.1"
 image = "0.25.5"
 clap = { version = "4.5.29", features = ["derive"] }
+rayon = "1.10.0"
