@@ -59,7 +59,10 @@ pub fn convolve(image: &GrayImage, kernel: &[&[f32]]) -> GrayImage {
         .flat_map(|y| {
             (0..output_width)
                 .into_par_iter()
-                .map(|x| convolve_pixel(image, kernel, &x, &y, kh, kw).clamp(0.0, 255.0) as u8)
+                .map(|x| {
+                    let acc = convolve_pixel(image, kernel, &x, &y, kh, kw);
+                    acc.clamp(0.0, 255.0) as u8
+                })
                 .collect::<Vec<u8>>()
         })
         .collect();
