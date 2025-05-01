@@ -1,14 +1,18 @@
-mod conv;
 // mod conv_llm_v1;
 mod conv_llm_v2;
 mod conv_llm_v3;
 mod filters;
 mod utils;
 
-use crate::conv_llm_v3::convolve;
+use crate::conv_llm_v2::convolve;
 use clap::{Parser, ValueEnum};
 use image::ImageReader;
 use std::cmp::PartialEq;
+use std::fs;
+use std::path::PathBuf;
+use std::time::Instant;
+use indicatif::ProgressBar;
+use serde_json::json;
 
 #[derive(ValueEnum, Clone, Debug, PartialEq)]
 enum DilationKind {
@@ -36,22 +40,19 @@ enum FilterSizeKind {
 /// Search for a pattern in a file and display the lines that contain it.
 #[derive(Parser, Debug)]
 struct Cli {
-    filename: std::path::PathBuf,
+    filename: PathBuf,
     #[clap(long, value_enum)]
     filter: FiltersKind,
     #[clap(long)]
     size: FilterSizeKind,
 
-    #[arg(long, value_enum, default_value_t=DilationKind::Null)]
-    dilation: DilationKind,
+    #[clap(long)]
+    num_runs: u64,
 }
 
 fn main() {
-    // structure: RustConv <filename> <filter> <filter size> <(optional) --dilation>
-    // For example (with binary executable): ```RustConv ./path/to/image.jpg --filter RIDGE --size 3
-    // For example (with cargo run): ```RustConv -- ./path/to/image.jpg --filter RIDGE --size 3
-    // For example (with binary executable): ```RustConv ./path/to/image.jpg --filter RIDGE --size 3 --dilation small
     let args = Cli::parse();
+    let num_runs = args.num_runs;
 
     let filter: &[&[f32]] = match args.filter {
         FiltersKind::Ridge => match args.size {
@@ -72,19 +73,53 @@ fn main() {
         FiltersKind::Gaussian => match args.size {
             FilterSizeKind::Small => filters::GAUSSIAN_3X3,
             FilterSizeKind::Medium => filters::GAUSSIAN_6X6,
-            FilterSizeKind::Large => unimplemented!("Large Gaussian filter is not yet supported."),
+            FilterSizeKind::Large => panic!("Large Gaussian filter not supported."),
         },
     };
 
-    if args.dilation != DilationKind::Null {
-        unimplemented!("Dilation is not supported yet");
+    let folder_path = PathBuf::from(&args.filename);
+    let entries: Vec<_> = fs::read_dir(folder_path)
+        .expect("Invalid directory")
+        .filter_map(Result::ok)
+        .collect();
+    let mut results = vec![];
+
+    let progress = ProgressBar::new(entries.len() as u64);
+
+    for entry in entries {
+        let path = entry.path();
+        if path.is_file() {
+            if let Ok(reader) = ImageReader::open(&path) {
+                if let Ok(img) = reader.decode() {
+                    let gray_img = img.to_luma8();
+                    let mut total_time = 0;
+                    let mut total_peak_mem = 0;
+                    let mut total_mem = 0;
+
+                    for _ in 0..num_runs {
+                        let start = Instant::now();
+                        let info = allocation_counter::measure(|| {
+                            let _ = convolve(&gray_img, filter);
+                        });
+                        let duration = start.elapsed().as_millis();
+
+                        total_time += duration;
+                        total_peak_mem += info.bytes_max;
+                        total_mem += info.bytes_total;
+                    }
+
+                    results.push(json!({
+                        "file": path.file_name().unwrap().to_string_lossy(),
+                        "memory_peak_bytes": total_peak_mem / num_runs,
+                        "memory_total_bytes": total_mem / num_runs,
+                        "time_seconds": total_time / num_runs as u128,
+                    }));
+                }
+            }
+        }
+
+        progress.inc(1);
     }
 
-    let img = ImageReader::open(args.filename)
-        .expect("Image could not be loaded")
-        .decode()
-        .expect("Image could not be decoded")
-        .to_luma8();
-
-    convolve(&img, filter);
+    println!("{}", json!(results));
 }

@@ -2,7 +2,7 @@ mod conv;
 mod filters;
 mod utils;
 
-use crate::conv::convolve;
+use crate::conv::convolve_v1;
 use allocation_counter;
 use clap::{Parser, ValueEnum};
 use image::ImageReader;
@@ -45,14 +45,13 @@ struct Cli {
     #[clap(long)]
     size: FilterSizeKind,
 
-    #[arg(long, value_enum, default_value_t=DilationKind::Null)]
-    dilation: DilationKind,
+    #[clap(long)]
+    num_runs: u64,
 }
-
-const NUM_RUNS: u64 = 1;
 
 fn main() {
     let args = Cli::parse();
+    let num_runs = args.num_runs;
 
     let filter: &[&[f32]] = match args.filter {
         FiltersKind::Ridge => match args.size {
@@ -96,10 +95,10 @@ fn main() {
                     let mut total_peak_mem = 0;
                     let mut total_mem = 0;
 
-                    for _ in 0..NUM_RUNS {
+                    for _ in 0..num_runs {
                         let start = Instant::now();
                         let info = allocation_counter::measure(|| {
-                            let _ = convolve(&gray_img, filter);
+                            let _ = convolve_v1(&gray_img, filter);
                         });
                         let duration = start.elapsed().as_millis();
 
@@ -110,9 +109,9 @@ fn main() {
 
                     results.push(json!({
                         "file": path.file_name().unwrap().to_string_lossy(),
-                        "memory_peak_bytes": total_peak_mem / NUM_RUNS,
-                        "memory_total_bytes": total_mem / NUM_RUNS,
-                        "time_seconds": total_time / NUM_RUNS as u128,
+                        "memory_peak_bytes": total_peak_mem / num_runs,
+                        "memory_total_bytes": total_mem / num_runs,
+                        "time_seconds": total_time / num_runs as u128,
                     }));
                 }
             }
